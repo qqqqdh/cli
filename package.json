@@ -1,0 +1,28 @@
+{
+  "name": "ollama-agent-cli",
+  "version": "0.4.0",
+  "description": "Ollama-powered agent CLI with MCP (REA) support",
+  "scripts": {
+    "start": "node bin/ollacode.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "smol-toml": "^1.9.1",
+    "undici": "^8.12.3"
+  },
+  "bin": {
+    "ollacode": "bin/ollacode.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills"
+  ]
+}

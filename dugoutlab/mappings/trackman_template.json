@@ -1,0 +1,63 @@
+{
+  "source": "trackman",
+  "_note": "트랙맨 내보내기용 시작 템플릿입니다. 구단의 실제 파일 컬럼명·부호 방향(좌우 기준)과 대조한 뒤 사용하세요. pa_result 는 PlayResult/KorBB 를 합쳐 별도로 만들어야 합니다.",
+  "columns": {
+    "GameID": "game_id",
+    "Date": "game_date",
+    "Inning": "inning",
+    "Top/Bottom": "top_bottom",
+    "PitchofPA": "pitch_num",
+    "PitcherId": "pitcher_id",
+    "Pitcher": "pitcher_name",
+    "PitcherTeam": "pitcher_team",
+    "PitcherThrows": "p_throws",
+    "BatterId": "batter_id",
+    "Batter": "batter_name",
+    "BatterTeam": "batter_team",
+    "BatterSide": "stand",
+    "Balls": "balls",
+    "Strikes": "strikes",
+    "Outs": "outs",
+    "TaggedPitchType": "pitch_type",
+    "RelSpeed": "release_speed",
+    "SpinRate": "spin_rate",
+    "HorzBreak": "pfx_x",
+    "InducedVertBreak": "pfx_z",
+    "PlateLocSide": "plate_x",
+    "PlateLocHeight": "plate_z",
+    "RelSide": "release_x",
+    "RelHeight": "release_z",
+    "Extension": "extension",
+    "PitchCall": "description",
+    "ExitSpeed": "launch_speed",
+    "Angle": "launch_angle",
+    "Direction": "spray_angle"
+  },
+  "units": {
+    "release_speed": "mph",
+    "launch_speed": "mph",
+    "pfx_x": "in",
+    "pfx_z": "in",
+    "plate_x": "ft",
+    "plate_z": "ft",
+    "release_x": "ft",
+    "release_z": "ft",
+    "extension": "ft"
+  },
+  "values": {
+    "pitch_type": {
+      "Fastball": "FF", "FourSeamFastBall": "FF", "TwoSeamFastBall": "SI", "Sinker": "SI",
+      "Cutter": "FC", "Slider": "SL", "Sweeper": "ST", "Curveball": "CU",
+      "ChangeUp": "CH", "Changeup": "CH", "Splitter": "FS", "Knuckleball": "KN"
+    },
+    "description": {
+      "BallCalled": "ball", "BallinDirt": "blocked_ball", "BallIntentional": "ball",
+      "StrikeCalled": "called_strike", "StrikeSwinging": "swinging_strike",
+      "FoulBall": "foul", "FoulBallNotFieldable": "foul", "FoulBallFieldable": "foul",
+      "InPlay": "in_play", "HitByPitch": "hit_by_pitch"
+    },
+    "p_throws": {"Right": "R", "Left": "L"},
+    "stand": {"Right": "R", "Left": "L"},
+    "top_bottom": {"Top": "T", "Bottom": "B"}
+  }
+}

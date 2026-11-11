@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ team_name }} 스카우팅 리포트</title>
+<style>
+  :root { --ink:#1d1d1f; --quiet:#6b6b70; --line:#e2e2e6; --accent:#1f5fa8; --warn:#b3261e; --bg:#ffffff; --soft:#f6f7f9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+         font-size: 12.5px; line-height: 1.45; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--ink); }
+  h3 { font-size: 15px; margin: 0; }
+  .meta { color: var(--quiet); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 10px 0; }
+  .kpi { background: var(--soft); border-radius: 6px; padding: 8px 10px; }
+  .kpi b { display: block; font-size: 17px; }
+  .kpi span { color: var(--quiet); font-size: 11px; }
+  .kpi small { color: var(--quiet); font-size: 10.5px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 0 0 16px; break-inside: avoid; page-break-inside: avoid; }
+  .card header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--soft); color: var(--quiet); margin-left: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-variant-numeric: tabular-nums; }
+  th, td { padding: 3px 6px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--quiet); font-weight: 600; font-size: 11px; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+  .charts { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; margin-top: 6px; }
+  .notes { margin: 8px 0 0; padding: 8px 10px 8px 26px; background: #fff7e6; border-radius: 6px; }
+  .notes li { margin: 2px 0; }
+  .lowN { color: var(--quiet); }
+  .scroll { overflow-x: auto; }
+  .ct { font-size: 11px; font-weight: 600; fill: var(--ink); }
+  .cv { font-size: 10px; font-weight: 600; }
+  .cn { font-size: 9px; fill: var(--quiet); }
+  .cl { font-size: 10px; fill: var(--ink); font-weight: 600; }
+  .cb { font-size: 9px; fill: #fff; font-weight: 600; }
+  .defs { color: var(--quiet); font-size: 11px; margin-top: 32px; }
+  @media print {
+    main { padding: 0; max-width: none; }
+    h2 { break-after: avoid; }
+    .page { break-before: page; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{ team_name }} 스카우팅 리포트</h1>
+  <div class="meta">분석 기간 {{ period[0] }} ~ {{ period[1] }} · {{ games }}경기 · 생성 {{ generated_at }}</div>
+
+  <h2>팀 요약</h2>
+  {% if team_batting %}
+  <h3>타격</h3>
+  <div class="kpis">
+    <div class="kpi"><span>타율/출루/장타</span><b>{{ team_batting.avg|r3 }}/{{ team_batting.obp|r3 }}/{{ team_batting.slg|r3 }}</b></div>
+    <div class="kpi"><span>wOBA</span><b>{{ team_batting.woba|r3 }}</b><small>리그 {{ baseline.woba|r3 }}</small></div>
+    <div class="kpi"><span>삼진%</span><b>{{ team_batting.k.value|pct(1) }}</b><small>리그 {{ baseline.k|pct(1) }}</small></div>
+    <div class="kpi"><span>볼넷%</span><b>{{ team_batting.bb.value|pct(1) }}</b></div>
+    <div class="kpi"><span>체이스%</span><b>{{ team_batting_disc.chase.value|pct(1) }}</b><small>리그 {{ baseline.chase|pct(1) }}</small></div>
+    <div class="kpi"><span>헛스윙%</span><b>{{ team_batting_disc.whiff.value|pct(1) }}</b><small>리그 {{ baseline.whiff|pct(1) }}</small></div>
+  </div>
+  {% endif %}
+  {% if team_pitching %}
+  <h3>투수</h3>
+  <div class="kpis">
+    <div class="kpi"><span>피안타율</span><b>{{ team_pitching.avg|r3 }}</b></div>
+    <div class="kpi"><span>피wOBA</span><b>{{ team_pitching.woba|r3 }}</b><small>리그 {{ baseline.woba|r3 }}</small></div>
+    <div class="kpi"><span>탈삼진%</span><b>{{ team_pitching.k.value|pct(1) }}</b><small>리그 {{ baseline.k|pct(1) }}</small></div>
+    <div class="kpi"><span>볼넷%</span><b>{{ team_pitching.bb.value|pct(1) }}</b></div>
+    <div class="kpi"><span>헛스윙%</span><b>{{ team_pitching_disc.whiff.value|pct(1) }}</b></div>
+    <div class="kpi"><span>존%</span><b>{{ team_pitching_disc.zone.value|pct(1) }}</b></div>
+  </div>
+  {% endif %}
+
+  <h3>타자별 핵심 포인트</h3>
+  <table>
+    <thead><tr><th>타자</th><th>타석</th><th>wOBA</th><th style="text-align:left">공략 포인트</th></tr></thead>
+    <tbody>
+    {% for b in batters %}
+      <tr><td>{{ b.name }} ({{ b.stand }})</td><td>{{ b.profile.line.pa }}</td><td>{{ b.profile.line.woba|r3 }}</td>
+          <td style="text-align:left;white-space:normal">{{ b.notes[0] if b.notes else "뚜렷한 약점 없음" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="page">투수진 ({{ pitchers|length }}명, {{ min_pitches }}구 이상)</h2>
+  {% for p in pitchers %}
+  <section class="card" id="p-{{ p.id }}">
+    <header>
+      <h3>{{ p.name }}<span class="tag">{{ "우투" if p.throws == "R" else "좌투" }}</span><span class="tag">{{ p.role }}</span></h3>
+      <span class="meta">{{ p.profile.games }}경기 · {{ p.profile.pitches }}구 · 상대 {{ p.profile.line.pa }}타석</span>
+    </header>
+    <div class="kpis">
+      <div class="kpi"><span>피안타율</span><b>{{ p.profile.line.avg|r3 }}</b></div>
+      <div class="kpi"><span>피wOBA</span><b>{{ p.profile.line.woba|r3 }}</b></div>
+      <div class="kpi"><span>탈삼진%</span><b>{{ p.profile.line.k.value|pct(1) }}</b></div>
+      <div class="kpi"><span>볼넷%</span><b>{{ p.profile.line.bb.value|pct(1) }}</b></div>
+      <div class="kpi"><span>헛스윙%</span><b>{{ p.profile.discipline.whiff.value|pct(1) }}</b></div>
+      <div class="kpi"><span>존%</span><b>{{ p.profile.discipline.zone.value|pct(1) }}</b></div>
+      <div class="kpi"><span>피타구 속도</span><b>{{ p.profile.batted.ev|num }}</b><small>km/h</small></div>
+    </div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>구종</th><th>투구</th><th>비율</th><th>vs좌</th><th>vs우</th><th>평균 km/h</th><th>최고</th><th>회전수</th>
+        <th>수평 cm</th><th>수직 cm</th><th>헛스윙%</th><th>존%</th><th>체이스%</th><th>결정구%</th><th>피wOBA</th></tr></thead>
+      <tbody>
+      {% for a in p.profile.arsenal %}
+        <tr>
+          <td><span class="swatch" style="background:{{ pitch_color(a.pitch_type) }}"></span>{{ a.name }}</td>
+          <td>{{ a.n }}</td><td>{{ a.usage|pct }}</td><td>{{ a.usage_vs_l|pct }}</td><td>{{ a.usage_vs_r|pct }}</td>
+          <td>{{ a.velo|num }}</td><td>{{ a.velo_max|num }}</td><td>{{ a.spin|num(0) }}</td>
+          <td>{{ a.pfx_x|num }}</td><td>{{ a.pfx_z|num }}</td>
+          <td class="{{ 'lowN' if a.whiff.n < 15 }}">{{ a.whiff.value|pct }}</td>
+          <td>{{ a.zone.value|pct }}</td><td>{{ a.chase.value|pct }}</td>
+          <td class="{{ 'lowN' if a.putaway.n < 15 }}">{{ a.putaway.value|pct }}</td>
+          <td class="{{ 'lowN' if a.woba_n < 15 }}">{{ a.woba|r3 }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>볼카운트별 구종</th>{% for b in p.profile.count_usage.buckets %}<th>{{ b }} ({{ p.profile.count_usage.n[loop.index0] }})</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for r in p.profile.count_usage.rows %}
+        <tr><td><span class="swatch" style="background:{{ pitch_color(r.pitch_type) }}"></span>{{ r.name }}</td>
+        {% for c in r.cells %}<td>{{ c|pct }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="charts">
+      <div>{{ p.usage_svg }}</div>
+      <div>{{ p.movement_svg }}</div>
+      {% for h in p.heatmaps %}<div>{{ h }}</div>{% endfor %}
+    </div>
+    {% if p.notes %}<ul class="notes">{% for n in p.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endfor %}
+
+  <h2 class="page">타선 ({{ batters|length }}명, {{ min_pa }}타석 이상)</h2>
+  {% for b in batters %}
+  {% set pr = b.profile %}
+  <section class="card" id="b-{{ b.id }}">
+    <header>
+      <h3>{{ b.name }}<span class="tag">{{ {"R": "우타", "L": "좌타", "S": "양타"}.get(b.stand, "-") }}</span></h3>
+      <span class="meta">{{ pr.games }}경기 · {{ pr.line.pa }}타석 · {{ pr.pitches }}구 상대</span>
+    </header>
+    <div class="kpis">
+      <div class="kpi"><span>타율/출루/장타</span><b>{{ pr.line.avg|r3 }}/{{ pr.line.obp|r3 }}/{{ pr.line.slg|r3 }}</b></div>
+      <div class="kpi"><span>wOBA</span><b>{{ pr.line.woba|r3 }}</b></div>
+      <div class="kpi"><span>삼진%</span><b>{{ pr.line.k.value|pct(1) }}</b></div>
+      <div class="kpi"><span>볼넷%</span><b>{{ pr.line.bb.value|pct(1) }}</b></div>
+      <div class="kpi"><span>체이스%</span><b>{{ pr.discipline.chase.value|pct(1) }}</b><small>리그 {{ baseline.chase|pct(1) }}</small></div>
+      <div class="kpi"><span>헛스윙%</span><b>{{ pr.discipline.whiff.value|pct(1) }}</b><small>리그 {{ baseline.whiff|pct(1) }}</small></div>
+      <div class="kpi"><span>평균 타구속도</span><b>{{ pr.batted.ev|num }}</b><small>km/h · 강한 타구 {{ pr.batted.hard_hit.value|pct }}</small></div>
+    </div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>상대 구종</th><th>투구</th><th>스윙%</th><th>헛스윙%</th><th>리그 헛스윙%</th><th>wOBA</th><th>타구속도</th></tr></thead>
+      <tbody>
+      {% for a in pr.vs_pitch %}
+        <tr>
+          <td><span class="swatch" style="background:{{ pitch_color(a.pitch_type) }}"></span>{{ a.name }}</td>
+          <td>{{ a.n }}</td>
+          <td>{{ (a.whiff.n / a.n)|pct }}</td>
+          <td class="{{ 'lowN' if a.whiff.n < 15 }}">{{ a.whiff.value|pct }}</td>
+          <td>{{ baseline.pitch.get(a.pitch_type, {}).get('whiff')|pct }}</td>
+          <td class="{{ 'lowN' if a.woba_n < 10 }}">{{ a.woba|r3 }}</td>
+          <td>{{ a.ev|num }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>상대 투수</th><th>타석</th><th>타율</th><th>출루율</th><th>장타율</th><th>wOBA</th><th>삼진%</th></tr></thead>
+      <tbody>
+      {% for h, label in [("L", "좌투수"), ("R", "우투수")] %}{% set s = pr.vs_hand[h] %}
+        <tr><td>{{ label }}</td><td>{{ s.pa }}</td><td>{{ s.avg|r3 }}</td><td>{{ s.obp|r3 }}</td><td>{{ s.slg|r3 }}</td><td>{{ s.woba|r3 }}</td><td>{{ s.k.value|pct }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>타구 성향</th><th>땅볼</th><th>라인드라이브</th><th>뜬공</th><th>팝업</th><th>당겨침</th><th>가운데</th><th>밀어침</th></tr></thead>
+      <tbody><tr><td>인플레이 {{ pr.batted.n }}개</td>
+        {% for t in ["땅볼", "라인드라이브", "뜬공", "팝업"] %}<td>{{ pr.batted.types[t].value|pct }}</td>{% endfor %}
+        <td>{{ pr.batted.pull.value|pct if pr.batted.pull else "–" }}</td>
+        <td>{{ pr.batted.center.value|pct if pr.batted.center else "–" }}</td>
+        <td>{{ pr.batted.oppo.value|pct if pr.batted.oppo else "–" }}</td></tr></tbody>
+    </table>
+    </div>
+    <div class="charts">
+      <div>{{ b.whiff_svg }}</div>
+      <div>{{ b.woba_svg }}</div>
+    </div>
+    {% if b.notes %}<ul class="notes">{% for n in b.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endfor %}
+
+  <p class="defs">
+    용어: 헛스윙% = 헛스윙 ÷ 스윙 · 존% = 스트라이크존 안 투구 비율 · 체이스% = 존 밖 공에 스윙한 비율 ·
+    결정구% = 2스트라이크에서 그 구종으로 삼진을 잡은 비율 · wOBA는 일반적인 리그 가중치를 쓴 근사값 ·
+    회색 숫자 = 표본이 적어 참고만 할 값 · 자동 코멘트는 표본이 충분하고 95% 신뢰구간 하한이 리그 평균보다 높을 때만 표시합니다.
+  </p>
+</main>
+</body>
+</html>

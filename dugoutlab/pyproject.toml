@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dugoutlab"
+version = "0.1.0"
+description = "야구 전력분석 지원 도구 (MVP): 투구 데이터 적재, 투구 탐색기, 스카우팅 리포트 자동 생성"
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.0",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "jinja2>=3.1",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+pdf = ["playwright>=1.40"]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+dugoutlab = "dugoutlab.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dugoutlab*"]
+
+[tool.setuptools.package-data]
+dugoutlab = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

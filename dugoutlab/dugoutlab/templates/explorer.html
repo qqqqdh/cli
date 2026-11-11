@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DugoutLab 투구 탐색기</title>
+<style>
+  :root { --ink:#1d1d1f; --quiet:#6b6b70; --line:#e2e2e6; --soft:#f6f7f9; --accent:#1f5fa8; --bg:#ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#ececf1; --quiet:#a0a0aa; --line:#33343a; --soft:#202127; --accent:#6aa5ff; --bg:#141518; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header a { color: var(--accent); }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  label { display: flex; flex-direction: column; font-size: 12px; color: var(--quiet); gap: 3px; }
+  select, input, button { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); min-width: 0; }
+  button { background: var(--accent); color: #fff; border: 0; cursor: pointer; align-self: end; }
+  .types { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
+  .types label { flex-direction: row; align-items: center; gap: 4px; color: var(--ink); font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); gap: 20px; padding: 16px; }
+  @media (max-width: 820px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 8px; }
+  .kpi { background: var(--soft); border-radius: 6px; padding: 8px 10px; }
+  .kpi b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .kpi span { font-size: 11px; color: var(--quiet); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 11px; color: var(--quiet); }
+  .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+  svg text { fill: var(--quiet); font-size: 11px; }
+  #plot circle { cursor: pointer; }
+  #detail { margin-top: 12px; background: var(--soft); border-radius: 8px; padding: 10px; font-size: 13px; min-height: 48px; }
+  #detail video { width: 100%; margin-top: 8px; border-radius: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; margin-top: 6px; }
+  .muted { color: var(--quiet); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DugoutLab 투구 탐색기</h1>
+  <span class="muted" id="range"></span>
+  <span id="reportLinks"></span>
+</header>
+
+<form id="filters">
+  <label>역할
+    <select name="role"><option value="pitcher">투수 기준</option><option value="batter">타자 기준</option></select>
+  </label>
+  <label>팀 <select name="team"><option value="">전체</option></select></label>
+  <label>선수 <select name="player"><option value="">팀 전체</option></select></label>
+  <label>상대 타자/투수 손
+    <select name="hand"><option value="">전체</option><option value="L">좌</option><option value="R">우</option></select>
+  </label>
+  <label>볼카운트
+    <select name="count"><option value="">전체</option><option>초구</option><option>투수 유리</option><option>타자 유리</option><option>동일</option><option>2스트라이크</option></select>
+  </label>
+  <label>결과
+    <select name="result"><option value="">전체</option><option value="swing">스윙</option><option value="whiff">헛스윙</option><option value="in_play">인플레이</option><option value="called_strike">루킹 스트라이크</option><option value="ball">볼</option></select>
+  </label>
+  <label>시작일 <input type="date" name="date_from"></label>
+  <label>종료일 <input type="date" name="date_to"></label>
+  <div class="types" id="types"></div>
+  <button type="submit">조회</button>
+</form>
+
+<main>
+  <section>
+    <svg id="plot" viewBox="0 0 400 440" width="100%" role="img" aria-label="투구 로케이션 (포수 시점)"></svg>
+    <div class="legend" id="legend"></div>
+    <div id="detail" class="muted">점을 누르면 투구 정보와 영상이 보입니다.</div>
+  </section>
+  <section>
+    <div class="kpis" id="kpis"></div>
+    <div class="scroll"><table id="table"></table></div>
+  </section>
+</main>
+
+<script>
+const COLORS = {FF:"#d1495b",SI:"#ed7d3a",FC:"#8c5e58",SL:"#2e86ab",ST:"#3fa7d6",CU:"#5b507a",CH:"#3c9d5d",FS:"#1b998b",KN:"#888888"};
+const NAMES = {FF:"포심",SI:"투심/싱커",FC:"커터",SL:"슬라이더",ST:"스위퍼",CU:"커브",CH:"체인지업",FS:"스플리터",KN:"너클볼"};
+const DESC = {ball:"볼",called_strike:"루킹 스트라이크",swinging_strike:"헛스윙",foul:"파울",in_play:"인플레이",hit_by_pitch:"몸에 맞는 공",foul_tip:"파울팁"};
+const RESULT = {single:"안타",double:"2루타",triple:"3루타",home_run:"홈런",field_out:"범타",double_play:"병살",strikeout:"삼진",walk:"볼넷",hit_by_pitch:"사구"};
+const form = document.getElementById("filters");
+const pct = v => v == null ? "–" : (v * 100).toFixed(1) + "%";
+const r3 = v => v == null ? "–" : v.toFixed(3).replace(/^0/, "");
+const n1 = v => v == null ? "–" : v.toFixed(1);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function getJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function init() {
+  const meta = await getJSON("/api/teams");
+  document.getElementById("range").textContent = meta.date_from ? `데이터 ${meta.date_from} ~ ${meta.date_to}` : "데이터 없음";
+  const teamSel = form.team;
+  meta.teams.forEach(t => teamSel.add(new Option(t, t)));
+  document.getElementById("reportLinks").innerHTML = meta.teams.map(t => `<a href="/reports/team/${encodeURIComponent(t)}" target="_blank">${esc(t)} 리포트</a>`).join(" · ");
+  Object.keys(NAMES).forEach(code => {
+    const l = document.createElement("label");
+    l.innerHTML = `<input type="checkbox" name="pt" value="${code}"><span class="sw" style="background:${COLORS[code]}"></span>${NAMES[code]}`;
+    document.getElementById("types").appendChild(l);
+  });
+  teamSel.addEventListener("change", loadPlayers);
+  form.role.addEventListener("change", loadPlayers);
+  form.addEventListener("submit", e => { e.preventDefault(); query(); });
+  await loadPlayers();
+  query();
+}
+
+async function loadPlayers() {
+  const team = form.team.value;
+  const sel = form.player;
+  sel.length = 1;
+  if (!team) return;
+  const players = await getJSON(`/api/players?team=${encodeURIComponent(team)}`);
+  const key = form.role.value === "pitcher" ? "pitches_thrown" : "pitches_seen";
+  players.filter(p => p[key] > 0).sort((a, b) => b[key] - a[key])
+    .forEach(p => sel.add(new Option(`${p.name} (${p[key]}구)`, p.player_id)));
+}
+
+async function query() {
+  const f = new FormData(form);
+  const q = new URLSearchParams();
+  const pitcherRole = f.get("role") === "pitcher";
+  if (f.get("player")) q.set(pitcherRole ? "pitcher_id" : "batter_id", f.get("player"));
+  else if (f.get("team")) q.set(pitcherRole ? "pitcher_team" : "batter_team", f.get("team"));
+  if (f.get("hand")) q.set(pitcherRole ? "stand" : "p_throws", f.get("hand"));
+  for (const k of ["count", "result", "date_from", "date_to"]) if (f.get(k)) q.set(k, f.get(k));
+  f.getAll("pt").forEach(v => q.append("pitch_type", v));
+  const data = await getJSON("/api/pitches?" + q);
+  render(data);
+}
+
+function render(data) {
+  const k = document.getElementById("kpis");
+  if (!data.summary) { k.innerHTML = "<p class='muted'>조건에 맞는 투구가 없습니다.</p>"; plot([]); document.getElementById("table").innerHTML = ""; return; }
+  const d = data.summary.discipline, l = data.summary.line, b = data.summary.batted;
+  const items = [
+    ["투구", data.total.toLocaleString()], ["타석", l.pa], ["타율", r3(l.avg)], ["wOBA", r3(l.woba)],
+    ["헛스윙%", pct(d.whiff.value)], ["존%", pct(d.zone.value)], ["체이스%", pct(d.chase.value)],
+    ["삼진%", pct(l.k.value)], ["타구속도", n1(b.ev)],
+  ];
+  k.innerHTML = items.map(([a, v]) => `<div class="kpi"><span>${a}</span><b>${v}</b></div>`).join("");
+  const rows = data.by_pitch_type.map(r => `<tr><td><span class="sw" style="background:${COLORS[r.pitch_type] || "#777"}"></span>${esc(r.name)}</td>
+    <td>${r.n}</td><td>${pct(r.usage)}</td><td>${n1(r.velo)}</td><td>${r.spin == null ? "–" : Math.round(r.spin)}</td>
+    <td>${n1(r.pfx_x)}</td><td>${n1(r.pfx_z)}</td><td>${pct(r.whiff.value)}</td><td>${pct(r.zone.value)}</td><td>${pct(r.chase.value)}</td><td>${r3(r.woba)}</td></tr>`).join("");
+  document.getElementById("table").innerHTML = `<thead><tr><th>구종</th><th>투구</th><th>비율</th><th>km/h</th><th>회전수</th><th>수평cm</th><th>수직cm</th><th>헛스윙%</th><th>존%</th><th>체이스%</th><th>wOBA</th></tr></thead><tbody>${rows}</tbody>`;
+  plot(data.points, data.sampled);
+}
+
+// 포수 시점 좌표(cm) → 화면 좌표
+const X0 = 200, PX = 2.6, Z0 = 400, PZ = 2.6;
+const sx = x => X0 + x * PX, sz = z => Z0 - (z - 0) * PZ;
+
+function plot(points, sampled) {
+  const svg = document.getElementById("plot");
+  const zone = `<rect x="${sx(-25)}" y="${sz(105)}" width="${50 * PX}" height="${60 * PZ}" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--ink)"/>`;
+  const thirds = [-25/3, 25/3].map(x => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${sz(105)}" y2="${sz(45)}" stroke="var(--line)"/>`).join("")
+    + [65, 85].map(z => `<line x1="${sx(-25)}" x2="${sx(25)}" y1="${sz(z)}" y2="${sz(z)}" stroke="var(--line)"/>`).join("");
+  const plate = `<path d="M${sx(-21.6)} ${sz(8)} H${sx(21.6)} L${sx(21.6)} ${sz(4)} L${sx(0)} ${sz(-2)} L${sx(-21.6)} ${sz(4)} Z" fill="none" stroke="var(--quiet)"/>`;
+  const dots = points.map((p, i) => `<circle data-i="${i}" cx="${sx(Math.max(-75, Math.min(75, p.plate_x))).toFixed(1)}" cy="${sz(Math.max(-5, Math.min(150, p.plate_z))).toFixed(1)}" r="4" fill="${COLORS[p.pitch_type] || "#777"}" fill-opacity="0.65"/>`).join("");
+  svg.innerHTML = `${thirds}${zone}${plate}${dots}<text x="8" y="16">포수 시점 · ${points.length.toLocaleString()}구${sampled ? " (표본 추출)" : ""}</text>`;
+  svg.querySelectorAll("circle").forEach(c => c.addEventListener("click", () => detail(points[+c.dataset.i])));
+  const types = [...new Set(points.map(p => p.pitch_type))];
+  document.getElementById("legend").innerHTML = types.map(t => `<span><span class="sw" style="background:${COLORS[t] || "#777"}"></span>${NAMES[t] || t}</span>`).join("");
+}
+
+function detail(p) {
+  const el = document.getElementById("detail");
+  const res = p.pa_result ? ` → <b>${RESULT[p.pa_result] || esc(p.pa_result)}</b>` : "";
+  const bb = p.launch_speed != null ? ` · 타구 ${n1(p.launch_speed)}km/h, ${n1(p.launch_angle)}°` : "";
+  let video = "";
+  if (p.video_url) {
+    const ts = p.video_ts != null ? `#t=${Math.max(0, p.video_ts - 3)}` : "";
+    video = `<video controls preload="none" src="${esc(p.video_url)}${ts}"></video><div class="muted">${esc(p.video_url)} · ${p.video_ts != null ? Math.round(p.video_ts) + "초" : ""}</div>`;
+  }
+  el.className = "";
+  el.innerHTML = `<b>${esc(p.game_date)} ${p.inning}회</b> · ${esc(p.pitcher_name)} → ${esc(p.batter_name)} (${p.balls}-${p.strikes})<br>
+    ${NAMES[p.pitch_type] || esc(p.pitch_type)} ${n1(p.release_speed)}km/h · ${DESC[p.description] || esc(p.description)}${res}${bb}${video}`;
+}
+
+init().catch(err => { document.getElementById("kpis").textContent = "불러오기 실패: " + err.message; });
+</script>
+</body>
+</html>

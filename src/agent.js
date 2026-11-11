@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { chatStream, modelCapabilities, OllamaError, ollamaFetch } from './ollama.js';
-import { builtinTools, routerTools } from './tools.js';
+import { builtinTools, routerTools, isOutside } from './tools.js';
 import { skillTools, parseFrontmatter } from './skills.js';
 import { imageTool, describeImages, readImageBase64, noVisionModelMessage } from './images.js';
 import { MarkdownStream, ThinkingStream } from './markdown.js';
@@ -33,6 +33,17 @@ export const USER_MEMORY = path.join(CONFIG_DIR, 'AGENTS.md');
 // Sections that may change mid-conversation. Instead of rewriting the system prompt (which throws away
 // Ollama's prompt cache), changes are announced in the next user message.
 const LIVE_SECTIONS = ['skills', 'notes', 'ponytail'];
+
+// Small models sometimes repeat the same call forever; from this count on the call is not run again.
+const MAX_SAME_CALL = 3;
+
+/** Keeps the start and the end of long tool output (errors and summaries are usually at the end). */
+export function truncateMiddle(s, max) {
+  s = String(s ?? '');
+  if (s.length <= max) return s;
+  const head = Math.ceil(max * 0.6), tail = max - head;
+  return `${s.slice(0, head)}\n…[${s.length - max} chars truncated]…\n${s.slice(-tail)}`;
+}
 
 export class Agent {
   /**
@@ -299,7 +310,15 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
       const m = this.messages[i];
       if (m.role === 'tool' && m.content.length > 300) m.content = m.content.slice(0, 300) + '\n…[older tool output trimmed]';
     }
-    while (size() > target && this.messages.length > 6) this.messages.splice(1, 1);
+    // Drop whole exchanges (a user message up to the next one), never parts of one: a tool result
+    // without the call that produced it, or a call without its result, confuses the model.
+    // The current exchange (from the last user message) is always kept.
+    while (size() > target) {
+      const lastUser = this.messages.findLastIndex((m) => m.role === 'user');
+      const next = this.messages.findIndex((m, i) => i > 1 && m.role === 'user');
+      if (next < 0 || next > lastUser) break;
+      this.messages.splice(1, next - 1);
+    }
   }
 
   /** Builds the user message, attaching images natively or via a vision model's description. */
@@ -336,6 +355,7 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
     this.undoStack.push([]);
     const { defs, handlers } = this.snapshot.tools;
     let tools = defs;
+    const callCounts = new Map();
 
     for (let turn = 0; turn < this.config.maxTurns; turn++) {
       this.compactHistory();
@@ -415,12 +435,29 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
       }
 
       for (const call of toolCalls) {
-        if (signal.aborted) return;
         const name = call.function?.name;
+        // Every call gets a result, even when interrupted, so the history stays well-formed.
+        if (signal.aborted) {
+          this.messages.push({ role: 'tool', tool_name: name, content: 'Not run: interrupted by user.' });
+          continue;
+        }
         let args = call.function?.arguments ?? {};
         if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
-        const result = await this.executeTool(name, args, handlers, signal);
-        this.messages.push({ role: 'tool', tool_name: name, content: truncate(result, this.maxToolChars) });
+        const key = `${name} ${JSON.stringify(args)}`;
+        const seen = (callCounts.get(key) ?? 0) + 1;
+        callCounts.set(key, seen);
+        let result;
+        if (seen >= MAX_SAME_CALL) {
+          println(yellow(`⚠ ${name}을(를) 같은 인자로 ${seen}번째 호출해서 건너뜁니다.`));
+          result = `Not run: you already called ${name} with these exact arguments ${seen - 1} times and the result will not change. Use the earlier result, try a different approach, or answer the user.`;
+        } else {
+          result = await this.executeTool(name, args, handlers, signal);
+        }
+        this.messages.push({ role: 'tool', tool_name: name, content: truncateMiddle(result, this.maxToolChars) });
+      }
+      if (signal.aborted) {
+        println(yellow('  ⎿ 중단됨'));
+        return;
       }
     }
     println(yellow(`⚠ 최대 턴 수(${this.config.maxTurns})에 도달했습니다.`));
@@ -449,10 +486,11 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
     println(`${green('⏺')} ${bold(label)}${gray('(')}${oneLine(preview, 140)}${gray(')')}`);
 
     // File edits: compute the change first so the user can see the diff.
-    let diff = null;
+    let diff = null, plan = null, outside = false;
     if (edits) {
       try {
-        const plan = await h.tool.plan(args, { cwd: this.cwd });
+        plan = await h.tool.plan(args, { cwd: this.cwd });
+        outside = isOutside(this.cwd, plan.path);
         diff = renderDiff(plan.before ?? '', plan.after, { maxLines: Math.max(8, (process.stdout.rows || 40) - 14) });
         if (plan.before === null) diff.created = true;
       } catch (e) {
@@ -462,9 +500,11 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
     }
 
     const mode = this.config.permissionMode;
-    const auto = readOnly || mode === 'auto' || (mode === 'acceptEdits' && edits) || this.alwaysAllow.has(label);
+    // Writing outside the working directory always asks, whatever the mode.
+    const auto = !outside && (readOnly || mode === 'auto' || (mode === 'acceptEdits' && edits) || this.alwaysAllow.has(label));
     if (!auto) {
       const detail = diff ? diff.lines.map((l) => `    ${l}`) : [];
+      if (outside) detail.unshift(yellow(`    ⚠ 작업 폴더 밖의 파일입니다: ${plan.path}`));
       const answer = await this.ui.confirm({ label, preview, detail, edits });
       if (answer.always) this.alwaysAllow.add(label);
       if (!answer.allow) {
@@ -480,6 +520,7 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
         cwd: this.cwd,
         signal,
         fast: this.fast,
+        plan,
         beforeWrite: (p, before) => this.undoStack.at(-1)?.push({ path: p, before }),
       };
       if (h.kind === 'mcp') out = (await this.mcp.call(h.server, h.tool.name, args, signal)).text;
@@ -537,6 +578,7 @@ ${core.map((k) => `- ${k.name}: ${oneLine(k.description, 160)}`).join('\n') || '
     } finally {
       spin.stop();
     }
+    if (!summary.trim()) throw new Error('모델이 빈 요약을 돌려줘서 대화를 그대로 두었습니다.');
     const before = this.estimateTokens();
     this.snapshot = null;
     this.messages = [

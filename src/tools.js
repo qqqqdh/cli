@@ -8,6 +8,32 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.venv', '__
 const resolvePath = (ctx, p) => path.resolve(ctx.cwd, p ?? '.');
 const readIfExists = (p) => fs.readFile(p, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; });
 
+const MAX_READ_BYTES = 5_000_000;
+const MAX_SHELL_OUTPUT = 1_000_000;
+
+/** True when `p` is outside `cwd` (writes there always need the user's confirmation). */
+export const isOutside = (cwd, p) => {
+  const rel = path.relative(cwd, p);
+  return rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+};
+
+/** Fails if the file changed after the user was shown the diff, so what runs is what was approved. */
+async function checkUnchanged(plan) {
+  const now = await readIfExists(plan.path);
+  if (now !== plan.before) throw new Error('The file changed after the preview was shown. Read it again and retry.');
+}
+
+/** Kills a shell and everything it started (e.g. a dev server launched by the command). */
+function killTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+}
+
 /**
  * Built-in tools. `readOnly` tools run without asking for permission.
  * `preview(args)` is the one-line summary shown to the user.
@@ -29,7 +55,12 @@ export const builtinTools = [
     readOnly: true,
     preview: (a) => a.path,
     async run(a, ctx) {
-      const text = await fs.readFile(resolvePath(ctx, a.path), 'utf8');
+      const p = resolvePath(ctx, a.path);
+      const st = await fs.stat(p);
+      if (st.isDirectory()) throw new Error(`${a.path} is a directory; use list_dir`);
+      if (st.size > MAX_READ_BYTES) throw new Error(`File is too large (${st.size} bytes). Use grep or run_shell to look inside it.`);
+      const text = await fs.readFile(p, 'utf8');
+      if (text.includes('\0')) return `${a.path} looks like a binary file (${st.size} bytes); not shown.`;
       const lines = text.split(/\r?\n/);
       const start = Math.max(1, a.offset ?? 1);
       // Fast mode reads less by default: every line read has to be processed again on later turns.
@@ -57,7 +88,9 @@ export const builtinTools = [
       return { path: p, before: await readIfExists(p), after: a.content ?? '' };
     },
     async run(a, ctx) {
-      const { path: p, before, after } = await this.plan(a, ctx);
+      const plan = ctx.plan ?? await this.plan(a, ctx);
+      if (ctx.plan) await checkUnchanged(plan);
+      const { path: p, before, after } = plan;
       ctx.beforeWrite?.(p, before);
       await fs.mkdir(path.dirname(p), { recursive: true });
       await fs.writeFile(p, after);
@@ -90,7 +123,9 @@ export const builtinTools = [
       return { path: p, before: text, after, count };
     },
     async run(a, ctx) {
-      const { path: p, before, after, count } = await this.plan(a, ctx);
+      const plan = ctx.plan ?? await this.plan(a, ctx);
+      if (ctx.plan) await checkUnchanged(plan);
+      const { path: p, before, after, count } = plan;
       ctx.beforeWrite?.(p, before);
       await fs.writeFile(p, after);
       return `Edited ${p} (${a.replace_all ? count : 1} replacement${count > 1 && a.replace_all ? 's' : ''})`;
@@ -156,10 +191,15 @@ export const builtinTools = [
       const re = new RegExp(a.pattern, a.ignore_case ? 'i' : '');
       const root = resolvePath(ctx, a.path);
       const hits = [];
+      const seen = new Set(); // real paths of visited directories, so symlink cycles end
       const visit = async (p) => {
         if (hits.length >= 200) return;
-        const st = await fs.stat(p);
+        const st = await fs.stat(p).catch(() => null); // broken symlink or no access
+        if (!st) return;
         if (st.isDirectory()) {
+          const real = await fs.realpath(p);
+          if (seen.has(real)) return;
+          seen.add(real);
           for (const e of await fs.readdir(p)) if (!SKIP_DIRS.has(e)) await visit(path.join(p, e));
         } else if (st.size < 2_000_000) {
           const text = await fs.readFile(p, 'utf8');
@@ -192,16 +232,39 @@ export const builtinTools = [
       const [cmd, args] = process.platform === 'win32'
         ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${a.command}`]]
         : ['bash', ['-lc', a.command]];
+      const timeout = a.timeout_ms ?? 120_000;
+      if (ctx.signal?.aborted) return Promise.resolve('[interrupted by user]');
       return new Promise((resolve) => {
-        const child = spawn(cmd, args, { cwd: ctx.cwd, signal: ctx.signal, windowsHide: true });
-        let out = '';
-        child.stdout.on('data', (d) => (out += d));
-        child.stderr.on('data', (d) => (out += d));
-        const timer = setTimeout(() => child.kill(), a.timeout_ms ?? 120_000);
-        child.on('error', (e) => { clearTimeout(timer); resolve(`ERROR: ${e.message}`); });
-        child.on('close', (code) => {
+        // Own process group on Unix so a timeout or Ctrl+C can stop the whole tree.
+        const child = spawn(cmd, args, { cwd: ctx.cwd, windowsHide: true, detached: process.platform !== 'win32' });
+        let out = '', dropped = 0, timedOut = false;
+        const collect = (d) => {
+          out += d;
+          // Keep the start and the end; errors are usually at the end.
+          if (out.length > MAX_SHELL_OUTPUT) {
+            const half = MAX_SHELL_OUTPUT / 2;
+            dropped += out.length - MAX_SHELL_OUTPUT;
+            out = out.slice(0, half) + out.slice(-half);
+          }
+        };
+        child.stdout.on('data', collect);
+        child.stderr.on('data', collect);
+        const timer = setTimeout(() => { timedOut = true; killTree(child); }, timeout);
+        const onAbort = () => killTree(child);
+        ctx.signal?.addEventListener('abort', onAbort, { once: true });
+        const done = (text) => {
           clearTimeout(timer);
-          resolve(`${out.trim() || '(no output)'}\n[exit code ${code}]`);
+          ctx.signal?.removeEventListener('abort', onAbort);
+          resolve(text);
+        };
+        child.on('error', (e) => done(`ERROR: ${e.message}`));
+        child.on('close', (code, sig) => {
+          let text = out.trim() || '(no output)';
+          if (dropped) text += `\n[${dropped} chars of output dropped from the middle]`;
+          if (timedOut) text += `\n[timed out after ${timeout} ms; the command and its child processes were stopped]`;
+          else if (ctx.signal?.aborted) text += '\n[interrupted by user]';
+          else text += `\n[exit code ${code ?? sig}]`;
+          done(text);
         });
       });
     },

@@ -3,7 +3,8 @@
   "version": "0.4.0",
   "description": "Ollama-powered agent CLI with MCP (REA) support",
   "scripts": {
-    "start": "node bin/ollacode.js"
+    "start": "node bin/ollacode.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [],
   "author": "",
